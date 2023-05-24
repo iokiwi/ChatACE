@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import subprocess
 from argparse import ArgumentParser
@@ -8,15 +7,13 @@ import openai
 from dotenv import load_dotenv
 from termcolor import colored
 
-warning = """
-WARNING: This is a dangerous script. It will execute any command that the AI tells it to.
-
-No warranty is provided. Use at your own risk.
-
+warning = """---------------------------- WARNING ----------------------------
+This is a dangerous script. It will execute any command that the
+AI tells it to. No warranty is provided. Use at your own risk.
 Seriously this is dangerous and stupid. You have been warned.
+-----------------------------------------------------------------
 """
 print(colored(warning, "red"))
-
 
 load_dotenv()
 
@@ -31,8 +28,8 @@ objective = args.objective
 GPT_MODEL = args.model
 OPERATIONS_LIMIT = args.limit
 
-openai.organization = os.getenv("OPENAI_ORGANIZATION")
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.organization = os.getenv("OPENAI_ORGANIZATION").strip('"')
+openai.api_key = os.getenv("OPENAI_API_KEY").strip('"')
 
 initial_prompt = f"""You are a programming assistant to help programmers complete tasks in the command line.
 Your goal is to "{args.objective}"
@@ -59,7 +56,7 @@ def execute_bash_command(command):
     # Use subprocess.run to execute the command
     result = subprocess.run(command, text=True, capture_output=True, shell=True)
     # Return the stderr and stdout (results of the command)
-    return result.stdout + result.stderr
+    return (result.stderr.strip("\n"), result.stdout.strip("\n"))
 
 
 def get_next_command(history, model, retries=3):
@@ -74,14 +71,15 @@ def get_next_command(history, model, retries=3):
                 model=model,
                 messages=history
             )["choices"][0]["message"]["content"]
-        except openai.error.APIError:
+            break
+        except openai.error.APIError as e:
             print("openai.error.APIError")
-            retry_count += 1
-            continue
-        except openai.error.RateLimitError:
+            pass
+        except openai.error.RateLimitError as e:
             print("openai.error.RateLimitError")
-            retry_count += 1
-            continue
+            pass
+
+        retry_count += 1
 
     if not response:
         print("Failed")
@@ -91,6 +89,8 @@ def get_next_command(history, model, retries=3):
 
 operations = 0
 done = False
+
+
 while operations < OPERATIONS_LIMIT and not done:
 
     response = get_next_command(history, GPT_MODEL)
@@ -100,16 +100,24 @@ while operations < OPERATIONS_LIMIT and not done:
         done = response_dict["done"]
 
         if done:
-            sys.exit(0)
+            break
 
-        print(colored(command, "blue"))
+        print(colored("$ " + command, "green"))
         history.append({"role": "assistant", "content": command})
 
         # execute command
-        result = execute_bash_command(command)
-        history.append({"role": "user", "content": result})
-        print(result)
-    except json.decoder.JSONDecodeError:
-        break
+        stderr, stdout = execute_bash_command(command)
+        history.append({"role": "user", "content": stderr + stdout})
+
+        if stderr:
+            print(colored(stderr, "red"))
+        if stdout:
+            print(colored(stdout, "white"))
+
+        print()
+    except json.decoder.JSONDecodeError as e:
+        print("JSONDecodeError")
 
     operations += 1
+
+print(colored("DONE", "green"))

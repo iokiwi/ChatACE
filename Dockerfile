@@ -5,4 +5,5 @@ COPY main.py main.py
 
 RUN pip install -r requirements.txt
 
-CMD ["python", "main.py"]
+ENTRYPOINT ["python", "main.py"]
+# CMD ["python", "main.py"]
